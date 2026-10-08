@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.example'
-version = '1.0.16'
+version = '1.0.17'
 archivesBaseName = 'ps5controller'
 
 java {
