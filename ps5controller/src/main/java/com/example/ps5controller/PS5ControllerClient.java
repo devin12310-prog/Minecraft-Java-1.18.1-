@@ -42,7 +42,7 @@ public class PS5ControllerClient implements ClientModInitializer {
     public static int selected = -1;
     public static float deadzone = 0.18f, lookSpeed = 1500f, menuSpeed = 1000f;
     public static boolean invertY, showGuide = true, guideFull = true, showStatus = true;
-    public static int mapUp = 102, mapDown = 104, mapLeft = 108, mapRight = 101;
+    public static int mapUp = 11, mapDown = 13, mapLeft = 14, mapRight = 12;
     public static void applyDefault() { int[] d = {0,9,20,21,3,2,1,10,5,4,10,7}; System.arraycopy(d,0,BINDS,0,BINDS.length); save(); }
     public static void applyPs3() { applyDefault(); }
     public static void usePad(int id) { selected = id; }
@@ -59,6 +59,7 @@ public class PS5ControllerClient implements ClientModInitializer {
         switch (b) {
             case 0: return "Cross"; case 1: return "Circle"; case 2: return "Square"; case 3: return "Triangle";
             case 4: return "L1"; case 5: return "R1"; case 6: return "Create"; case 7: return "Options"; case 8: return "Touchpad"; case 9: return "L3"; case 10: return "R3";
+            case 11: return "D-pad up"; case 12: return "D-pad right"; case 13: return "D-pad down"; case 14: return "D-pad left";
             case 20: return "L2"; case 21: return "R2"; default: return "Button "+b;
         }
     }
@@ -160,19 +161,34 @@ public class PS5ControllerClient implements ClientModInitializer {
         m.pop();
     }
     private static int dpad() {
-        if (hit(mapRight) || lastHat == 1 || (bt[11] && !bt[12] && !bt[13])) return 4;
-        if (hit(mapUp) || lastHat == 2 || bt[12]) return 1;
-        if (hit(mapDown) || lastHat == 4 || bt[13]) return 2;
-        if (hit(mapLeft) || lastHat == 8 || bt[14]) return 3; return 0;
+        boolean up = bt[11] || (lastHat & 1) != 0 || hit(mapUp);
+        boolean right = bt[12] || (lastHat & 2) != 0 || hit(mapRight);
+        boolean down = bt[13] || (lastHat & 4) != 0 || hit(mapDown);
+        boolean left = bt[14] || (lastHat & 8) != 0 || hit(mapLeft);
+        if (right && !left) return 4;
+        if (left && !right) return 3;
+        if (up && !down) return 1;
+        if (down && !up) return 2;
+        return 0;
     }
     private static boolean hit(int code) { if (code>=100) return lastHat==(code-100); return code>=0 && code<bt.length && bt[code]; }
     private static void moveButton(MinecraftClient mc, Screen screen, int dir) {
         List<ClickableWidget> list=new ArrayList<>();
         for (Element e: screen.children()) if (e instanceof ClickableWidget && ((ClickableWidget)e).visible) list.add((ClickableWidget)e);
         if (list.isEmpty()) return;
-        focus = dir==3 || dir==1 ? focus-1 : focus+1; if (focus<0) focus=list.size()-1; if (focus>=list.size()) focus=0;
-        ClickableWidget w=list.get(focus);
-        GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), (w.x+w.getWidth()/2.0)*mc.getWindow().getWidth()/screen.width, (w.y+w.getHeight()/2.0)*mc.getWindow().getHeight()/screen.height);
+        ClickableWidget cur = focus>=0 && focus<list.size() ? list.get(focus) : list.get(0);
+        double ox = cur.x + cur.getWidth()/2.0, oy = cur.y + cur.getHeight()/2.0, best = 1e9; ClickableWidget pick = null; int pickI = focus;
+        for (int i=0;i<list.size();i++) {
+            ClickableWidget w = list.get(i); if (w==cur) continue;
+            double dx = w.x + w.getWidth()/2.0 - ox, dy = w.y + w.getHeight()/2.0 - oy;
+            boolean ok = dir==1 ? dy<-4 : dir==2 ? dy>4 : dir==3 ? dx<-4 : dx>4;
+            if (!ok) continue;
+            double score = Math.abs(dir<3 ? dy : dx);
+            if (score<best) { best=score; pick=w; pickI=i; }
+        }
+        if (pick==null) return;
+        focus = pickI;
+        GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), (pick.x+pick.getWidth()/2.0)*mc.getWindow().getWidth()/screen.width, (pick.y+pick.getHeight()/2.0)*mc.getWindow().getHeight()/screen.height);
     }
     private static void moveSlot(MinecraftClient mc, HandledScreen<?> screen, int dir) {
         int left=(screen.width-176)/2, top=top(screen); double[] cx={0}, cy={0}; GLFW.glfwGetCursorPos(mc.getWindow().getHandle(),cx,cy);
