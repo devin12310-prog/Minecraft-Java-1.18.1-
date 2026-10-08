@@ -93,7 +93,7 @@ public class PS5ControllerClient implements ClientModInitializer {
     private static void tick(MinecraftClient mc) {
         boolean found = read(); on = found; connected = found;
         PAD.active = found && mc.player != null && mc.currentScreen == null;
-        if (!PAD.active) { PAD.forward=PAD.sideways=0; PAD.jump=PAD.sneak=false; copyPrev(); return; }
+        if (!PAD.active) { if (listening < 0 && mapping == 0) copyPrev(); return; }
         float lx=dz(ax[0]), ly=dz(ax[1]), mag=(float)Math.hypot(lx,ly);
         if (mag>0) { float out=Math.min(1f,mag/0.85f); PAD.forward=-(ly/mag)*out; PAD.sideways=-(lx/mag)*out; } else PAD.forward=PAD.sideways=0;
         PAD.jump = held(BINDS[0]); PAD.sneak = held(BINDS[1]);
@@ -128,6 +128,7 @@ public class PS5ControllerClient implements ClientModInitializer {
         return out;
     }
     private static void menu(MinecraftClient mc, Screen screen, MatrixStack matrices) {
+        if (listening >= 0 || mapping > 0) return;
         if (mc.currentScreen!=screen || !read()) return;
         long handle=mc.getWindow().getHandle(); double[] cx={0}, cy={0}; GLFW.glfwGetCursorPos(handle,cx,cy);
         long n=System.nanoTime(); float dt=lastMenu==0?0:Math.min(0.1f,(n-lastMenu)/1_000_000_000f); lastMenu=n;
