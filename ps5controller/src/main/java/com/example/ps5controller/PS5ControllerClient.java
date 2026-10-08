@@ -124,7 +124,7 @@ public class PS5ControllerClient implements ClientModInitializer {
                 Screens.getButtons(screen).add(button);
             }
             ScreenEvents.afterRender(screen).register((s, matrices, mouseX, mouseY, tickDelta) ->
-                    menuFrame(MinecraftClient.getInstance(), s));
+                    menuFrame(MinecraftClient.getInstance(), s, matrices));
         });
     }
 
@@ -506,9 +506,15 @@ public class PS5ControllerClient implements ClientModInitializer {
         GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), px, py);
     }
 
+    private static int guiTop(HandledScreen<?> screen) {
+        int maxY = 0;
+        for (Slot slot : screen.getScreenHandler().slots) if (slot.y > maxY) maxY = slot.y;
+        return (screen.height - (maxY + 26)) / 2;
+    }
+
     private static Slot slotAt(HandledScreen<?> screen, double sx, double sy) {
         int left = (screen.width - 176) / 2;
-        int top = (screen.height - 166) / 2;
+        int top = guiTop(screen);
         Slot best = null;
         double bestD = 18;
         for (Slot slot : screen.getScreenHandler().slots) {
@@ -522,7 +528,7 @@ public class PS5ControllerClient implements ClientModInitializer {
 
     private static void moveInventoryCursor(MinecraftClient mc, HandledScreen<?> screen, int dir) {
         int left = (screen.width - 176) / 2;
-        int top = (screen.height - 166) / 2;
+        int top = guiTop(screen);
         double[] cx = new double[1], cy = new double[1];
         GLFW.glfwGetCursorPos(mc.getWindow().getHandle(), cx, cy);
         double sx = cx[0] * screen.width / (double) mc.getWindow().getWidth();
@@ -558,7 +564,7 @@ public class PS5ControllerClient implements ClientModInitializer {
         mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, slot.id, 0, net.minecraft.screen.slot.SlotActionType.QUICK_MOVE, mc.player);
     }
 
-    private static void menuFrame(MinecraftClient mc, Screen screen) {
+    private static void menuFrame(MinecraftClient mc, Screen screen, MatrixStack matrices) {
         long n = System.nanoTime();
         float dt = lastMenuFrame == 0 ? 0f : (n - lastMenuFrame) / 1_000_000_000f;
         lastMenuFrame = n; dt = Math.min(dt, 0.1f);
@@ -634,7 +640,29 @@ public class PS5ControllerClient implements ClientModInitializer {
         while (scrollAcc >= 1.0) { screen.mouseScrolled(sx, sy, 1.0); scrollAcc -= 1.0; }
         while (scrollAcc <= -1.0) { screen.mouseScrolled(sx, sy, -1.0); scrollAcc += 1.0; }
 
+        drawHover(mc, screen, matrices, sx, sy);
         System.arraycopy(bt, 0, mprev, 0, 15);
+    }
+
+    private static void drawHover(MinecraftClient mc, Screen screen, MatrixStack matrices, double sx, double sy) {
+        if (screen instanceof HandledScreen) {
+            Slot slot = slotAt((HandledScreen<?>) screen, sx, sy);
+            if (slot != null && slot.hasStack()) {
+                screen.renderTooltip(matrices, slot.getStack().getName(), (int) sx, (int) sy);
+                return;
+            }
+        }
+        ClickableWidget over = null;
+        for (ClickableWidget w : collectWidgets(screen)) {
+            if (sx >= w.x && sx <= w.x + w.getWidth() && sy >= w.y && sy <= w.y + w.getHeight()) over = w;
+        }
+        if (over != null && over.getMessage() != null) {
+            drawCentered(mc, matrices, over.getMessage().getString(), screen.width / 2, 6);
+        }
+    }
+
+    private static void drawCentered(MinecraftClient mc, MatrixStack matrices, String text, int x, int y) {
+        mc.textRenderer.drawWithShadow(matrices, text, x - mc.textRenderer.getWidth(text) / 2, y, 0xFFFFFF);
     }
 
     private static void hud(MatrixStack matrices, float tickDelta) {
