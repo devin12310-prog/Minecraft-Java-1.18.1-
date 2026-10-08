@@ -42,15 +42,24 @@ public class PS5ControllerClient implements ClientModInitializer {
     public static volatile int listening = -1, mapping = 0;
     public static String padName = "None";
     public static boolean connected;
+    public static float deadzone = 0.18f, lookSpeed = 1500f, menuSpeed = 1000f;
+    public static boolean invertY, showGuide = true, guideFull = true, showStatus = true;
     public static int mapUp = 102, mapDown = 104, mapLeft = 108, mapRight = 101;
     public static void applyDefault() { int[] d = {0,9,20,21,3,2,1,10,5,4,10,7}; System.arraycopy(d,0,BINDS,0,BINDS.length); save(); }
     public static void applyPs3() { applyDefault(); }
+    public static void cycleDeadzone(){ deadzone = deadzone>=0.3f?0.1f:Math.round((deadzone+0.04f)*100f)/100f; save(); }
+    public static void cycleLook(){ lookSpeed = lookSpeed>=2200?800:lookSpeed+200; save(); }
+    public static void cycleMenu(){ menuSpeed = menuSpeed>=1600?600:menuSpeed+200; save(); }
+    public static void toggleInvert(){ invertY=!invertY; save(); }
+    public static void toggleGuide(){ showGuide=!showGuide; save(); }
+    public static void toggleGuideSize(){ guideFull=!guideFull; save(); }
+    public static void toggleStatus(){ showStatus=!showStatus; save(); }
     public static void saveMap() { save(); }
     public static void setBind(int a, int b) { if (a>=0 && a<BINDS.length) BINDS[a]=b; save(); }
     public static String buttonName(int b) {
         switch (b) {
             case 0: return "Cross"; case 1: return "Circle"; case 2: return "Square"; case 3: return "Triangle";
-            case 4: return "L1"; case 5: return "R1"; case 7: return "Options"; case 9: return "L3"; case 10: return "R3";
+            case 4: return "L1"; case 5: return "R1"; case 6: return "Create"; case 7: return "Options"; case 8: return "Touchpad"; case 9: return "L3"; case 10: return "R3";
             case 20: return "L2"; case 21: return "R2"; default: return "Button "+b;
         }
     }
@@ -66,7 +75,6 @@ public class PS5ControllerClient implements ClientModInitializer {
         return -1;
     }
     private static final int CROSS=0,CIRCLE=1,SQUARE=2,TRIANGLE=3,L1=4,R1=5,OPTIONS=7,L3=9,R3=10;
-    private static final float DEAD=0.18f;
     private static GLFWGamepadState state;
     private static final float[] ax = new float[6];
     private static final boolean[] bt = new boolean[15], prev = new boolean[15];
@@ -113,14 +121,21 @@ public class PS5ControllerClient implements ClientModInitializer {
     private static void look(MinecraftClient mc) {
         long n=System.nanoTime(); float dt=lastLook==0?0:Math.min(0.1f,(n-lastLook)/1_000_000_000f); lastLook=n;
         if (mc.player==null || mc.currentScreen!=null || !read()) return;
-        float rx=dz(ax[2]), ry=dz(ax[3]);
-        if (rx!=0 || ry!=0) mc.player.changeLookDirection(rx*1500f*dt, ry*1500f*dt);
+        float rx=dz(ax[2]), ry=dz(ax[3]); if (invertY) ry=-ry;
+        if (rx!=0 || ry!=0) mc.player.changeLookDirection(rx*lookSpeed*dt, ry*lookSpeed*dt);
     }
     private static void hud(MatrixStack m) {
         MinecraftClient mc=MinecraftClient.getInstance();
         if (mc.player==null || mc.currentScreen!=null) return;
-        String t=connected ? "PS5 1.0.2: "+padName : "PS5 1.0.2: not connected";
-        mc.textRenderer.drawWithShadow(m,t,mc.getWindow().getScaledWidth()-mc.textRenderer.getWidth(t)-4,4,connected?0x55FF55:0xFF5555);
+        if (showStatus) {
+            String t=connected ? "PS5: "+padName : "PS5: not connected";
+            mc.textRenderer.drawWithShadow(m,t,mc.getWindow().getScaledWidth()-mc.textRenderer.getWidth(t)-4,4,connected?0x55FF55:0xFF5555);
+        }
+        if (showGuide) {
+            String[] lines = guideFull ? new String[]{"Cross Jump","L2 Use","R2 Mine","Triangle Inventory","Circle Drop","Square Swap","L3 Sprint","R3 Sneak","L1/R1 Hotbar","Options Pause"} : new String[]{"Cross Jump","L2 Use","R2 Mine","Triangle Inventory"};
+            int y = mc.getWindow().getScaledHeight()-12-lines.length*10;
+            for (String line : lines) { mc.textRenderer.drawWithShadow(m, line, 4, y, 0xFFFFFF); y += 10; }
+        }
     }
     public static java.util.List<String> pads() {
         java.util.List<String> out=new java.util.ArrayList<>();
@@ -137,10 +152,11 @@ public class PS5ControllerClient implements ClientModInitializer {
         double[] cx={0}, cy={0};
         GLFW.glfwGetCursorPos(handle,cx,cy);
         long n=System.nanoTime(); float dt=lastMenu==0?0:Math.min(0.1f,(n-lastMenu)/1_000_000_000f); lastMenu=n;
+        touch(handle, cx, cy);
         float mx=dz(ax[0]), my=dz(ax[1]);
         if (mx!=0 || my!=0) {
             int[] ww={1}, wh={1}; GLFW.glfwGetWindowSize(handle,ww,wh);
-            cx[0]=clamp(cx[0]+mx*1000f*dt,0,ww[0]-1); cy[0]=clamp(cy[0]+my*1000f*dt,0,wh[0]-1);
+            cx[0]=clamp(cx[0]+mx*menuSpeed*dt,0,ww[0]-1); cy[0]=clamp(cy[0]+my*menuSpeed*dt,0,wh[0]-1);
             GLFW.glfwSetCursorPos(handle,cx[0],cy[0]);
         }
         double sx=cx[0]*screen.width/mc.getWindow().getWidth(), sy=cy[0]*screen.height/mc.getWindow().getHeight();
@@ -156,12 +172,17 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (bt[CROSS] && !prev[CROSS]) { if (list(screen)) screen.keyPressed(GLFW.GLFW_KEY_ENTER,0,0); screen.mouseClicked(sx,sy,0); leftHeld=true; }
         if (!bt[CROSS] && prev[CROSS] && leftHeld) { screen.mouseReleased(sx,sy,0); leftHeld=false; }
         if (screen instanceof HandledScreen && held(BINDS[4]) && !heldPrev(BINDS[4])) quick(mc,(HandledScreen<?>)screen,sx,sy);
+        if (screen instanceof HandledScreen && bt[SQUARE] && !prev[SQUARE]) half(mc,(HandledScreen<?>)screen,sx,sy);
         if (bt[CIRCLE] && !prev[CIRCLE]) { screen.keyPressed(GLFW.GLFW_KEY_ESCAPE,0,0); noDropUntil=System.currentTimeMillis()+500; }
         if (screen instanceof HandledScreen) {
             Slot slot=slotAt((HandledScreen<?>)screen,sx,sy);
             if (slot!=null && slot.hasStack()) screen.renderTooltip(matrices, slot.getStack().getName(), (int)sx, (int)sy);
         }
         drawCross(mc, matrices, sx, sy);
+        if (showGuide) {
+            String line = screen instanceof HandledScreen ? "Cross Select  Triangle Move stack  Square Half  Circle Back  D-pad Slots" : "Cross Select  Circle Back  Left stick Mouse  D-pad Move";
+            mc.textRenderer.drawWithShadow(matrices, line, 4, screen.height-12, 0xFFFFFF);
+        }
         copyPrev();
     }
     private static void drawCross(MinecraftClient mc, MatrixStack m, double x, double y) {
@@ -204,6 +225,11 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (pick==null) return;
         GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), (left+pick.x+8)*mc.getWindow().getWidth()/screen.width, (top+pick.y+8)*mc.getWindow().getHeight()/screen.height);
     }
+    private static void half(MinecraftClient mc, HandledScreen<?> screen, double sx, double sy) {
+        Slot slot=slotAt(screen,sx,sy);
+        if (slot!=null && mc.player!=null && mc.interactionManager!=null)
+            mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, slot.id, 1, SlotActionType.PICKUP, mc.player);
+    }
     private static void quick(MinecraftClient mc, HandledScreen<?> screen, double sx, double sy) {
         Slot slot=slotAt(screen,sx,sy);
         if (slot!=null && mc.player!=null && mc.interactionManager!=null)
@@ -219,6 +245,15 @@ public class PS5ControllerClient implements ClientModInitializer {
     }
     private static int top(HandledScreen<?> screen) { int max=0; for (Slot s: screen.getScreenHandler().slots) if (s.y>max) max=s.y; return (screen.height-(max+26))/2; }
     private static boolean list(Screen screen) { for (Element e: screen.children()) if (e.getClass().getName().contains("WorldList")||e.getClass().getName().contains("EntryList")) return true; return false; }
+    private static void touch(long handle, double[] cx, double[] cy) {
+        FloatBuffer a; try { a=GLFW.glfwGetJoystickAxes(jid); } catch (Throwable t) { return; }
+        if (a==null || a.remaining()<8) return;
+        float tx=a.get(6), ty=a.get(7);
+        if (Math.abs(tx)<0.08f && Math.abs(ty)<0.08f) return;
+        int[] ww={1}, wh={1}; GLFW.glfwGetWindowSize(handle,ww,wh);
+        cx[0]=clamp(cx[0]+tx*40,0,ww[0]-1); cy[0]=clamp(cy[0]+ty*40,0,wh[0]-1);
+        GLFW.glfwSetCursorPos(handle,cx[0],cy[0]);
+    }
     private static boolean read() {
         if (state==null) state=GLFWGamepadState.malloc();
         if (!mapped) { mapped=true; try (MemoryStack st=MemoryStack.stackPush()) { GLFW.glfwUpdateGamepadMappings(st.UTF8(SDL)); } catch (Throwable ignored) {} }
@@ -263,7 +298,7 @@ public class PS5ControllerClient implements ClientModInitializer {
     }
     private static void copyPrev(){ System.arraycopy(bt,0,prev,0,15); prevL2=l2(); prevR2=r2(); prevHat=lastHat; }
     private static double clamp(double v,double a,double b){return Math.max(a,Math.min(b,v));}
-    private static float dz(float v){float a=Math.abs(v); return a<DEAD?0:Math.copySign((a-DEAD)/(1-DEAD),v);}
+    private static float dz(float v){float a=Math.abs(v); return a<deadzone?0:Math.copySign((a-deadzone)/(1-deadzone),v);}
     private static Path file(){return FabricLoader.getInstance().getConfigDir().resolve("ps5binds3.txt");}
     private static void load(){ applyDefault();
         try { if (!Files.exists(file())) return; String raw=Files.readString(file()).trim();
