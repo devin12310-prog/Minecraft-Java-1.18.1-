@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "ps5controller",
+  "version": "${version}",
+  "name": "PS5 Controller",
+  "description": "Adds PS5 controller support with D-pad navigation and menu hover assistance.",
+  "authors": ["devin12310-prog"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.example.ps5controller.PS5ControllerClient"
+    ]
+  }
+}
