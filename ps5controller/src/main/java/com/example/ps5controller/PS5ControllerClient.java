@@ -10,9 +10,8 @@ import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Element;
-import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.option.OptionsScreen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
@@ -41,8 +40,11 @@ public class PS5ControllerClient implements ClientModInitializer {
     public static final String[] ACT = {"Jump","Sneak","Attack","Use","Inventory","Swap","Drop","Look","Hotbar next","Hotbar prev","Sprint","Pause"};
     public static final int[] BINDS = new int[ACT.length];
     public static volatile int listening = -1, mapping = 0;
-    public static int mapUp = 12, mapDown = 13, mapLeft = 14, mapRight = 11;
+    public static String padName = "None";
+    public static boolean connected;
+    public static int mapUp = 102, mapDown = 104, mapLeft = 108, mapRight = 101;
     public static void applyDefault() { int[] d = {0,9,20,21,3,2,1,10,5,4,10,7}; System.arraycopy(d,0,BINDS,0,BINDS.length); save(); }
+    public static void applyPs3() { applyDefault(); }
     public static void saveMap() { save(); }
     public static void setBind(int a, int b) { if (a>=0 && a<BINDS.length) BINDS[a]=b; save(); }
     public static String buttonName(int b) {
@@ -63,7 +65,6 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (lastHat != 0 && lastHat != prevHat) return 100 + lastHat;
         return -1;
     }
-
     private static final int CROSS=0,CIRCLE=1,SQUARE=2,TRIANGLE=3,L1=4,R1=5,OPTIONS=7,L3=9,R3=10;
     private static final float DEAD=0.18f;
     private static GLFWGamepadState state;
@@ -73,25 +74,21 @@ public class PS5ControllerClient implements ClientModInitializer {
     private static int jid=-1, focus, lastHat, prevHat;
     private static float restL=9f, restR=9f;
     private static long lastLook, lastMenu, lastNav, noDropUntil;
-    private static double curX, curY;
-    private static final String SDL =
-            "030000004c050000e60c000000000000,PS5 Controller,a:b1,b:b2,x:b0,y:b3,back:b8,start:b9,leftstick:b10,rightstick:b11,leftshoulder:b4,rightshoulder:b5,dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,lefttrigger:a3,righttrigger:a4,leftx:a0,lefty:a1,rightx:a2,righty:a5,platform:Windows,\n";
-
+    private static final String SDL = "030000004c050000e60c000000000000,PS5 Controller,a:b1,b:b2,x:b0,y:b3,back:b8,start:b9,leftstick:b10,rightstick:b11,leftshoulder:b4,rightshoulder:b5,dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,lefttrigger:a3,righttrigger:a4,leftx:a0,lefty:a1,rightx:a2,righty:a5,platform:Windows,\n";
     @Override public void onInitializeClient() {
         load();
         ClientTickEvents.START_CLIENT_TICK.register(PS5ControllerClient::tick);
         WorldRenderEvents.START.register(ctx -> look(MinecraftClient.getInstance()));
         HudRenderCallback.EVENT.register((m,d) -> hud(m));
         ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
-            if (screen instanceof TitleScreen || screen instanceof GameMenuScreen)
-                Screens.getButtons(screen).add(new ButtonWidget(4, 4, 110, 20, new LiteralText("Controls"), b -> client.setScreen(new ControllerScreen(screen))));
+            if (screen instanceof OptionsScreen)
+                Screens.getButtons(screen).add(new ButtonWidget(screen.width / 2 + 5, screen.height - 28, 150, 20, new LiteralText("Controller"), b -> client.setScreen(new ControllerScreen(screen))));
             ScreenEvents.afterRender(screen).register((s, matrices, mx, my, dt) -> menu(MinecraftClient.getInstance(), s, matrices));
         });
     }
-
     private static void tick(MinecraftClient mc) {
         boolean found = read();
-        on = found;
+        on = found; connected = found;
         PAD.active = found && mc.player != null && mc.currentScreen == null;
         if (!PAD.active) { PAD.forward=PAD.sideways=0; PAD.jump=PAD.sneak=false; copyPrev(); return; }
         float lx=dz(ax[0]), ly=dz(ax[1]), mag=(float)Math.hypot(lx,ly);
@@ -113,21 +110,27 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (edge(BINDS[11])) mc.openPauseMenu(false);
         copyPrev();
     }
-
     private static void look(MinecraftClient mc) {
         long n=System.nanoTime(); float dt=lastLook==0?0:Math.min(0.1f,(n-lastLook)/1_000_000_000f); lastLook=n;
         if (mc.player==null || mc.currentScreen!=null || !read()) return;
         float rx=dz(ax[2]), ry=dz(ax[3]);
         if (rx!=0 || ry!=0) mc.player.changeLookDirection(rx*1500f*dt, ry*1500f*dt);
     }
-
     private static void hud(MatrixStack m) {
         MinecraftClient mc=MinecraftClient.getInstance();
         if (mc.player==null || mc.currentScreen!=null) return;
-        String t=on?"PS5 connected":"PS5 not connected";
-        mc.textRenderer.drawWithShadow(m,t,mc.getWindow().getScaledWidth()-mc.textRenderer.getWidth(t)-4,4,on?0x55FF55:0xFF5555);
+        String t=connected ? "PS5 1.0.2: "+padName : "PS5 1.0.2: not connected";
+        mc.textRenderer.drawWithShadow(m,t,mc.getWindow().getScaledWidth()-mc.textRenderer.getWidth(t)-4,4,connected?0x55FF55:0xFF5555);
     }
-
+    public static java.util.List<String> pads() {
+        java.util.List<String> out=new java.util.ArrayList<>();
+        for (int id=0; id<=GLFW.GLFW_JOYSTICK_LAST; id++) {
+            if (!GLFW.glfwJoystickPresent(id)) continue;
+            String n=GLFW.glfwGetJoystickName(id);
+            out.add((n==null?"Controller":n)+(GLFW.glfwJoystickIsGamepad(id)?"  gamepad":""));
+        }
+        return out;
+    }
     private static void menu(MinecraftClient mc, Screen screen, MatrixStack matrices) {
         if (mc.currentScreen!=screen || !read()) return;
         long handle=mc.getWindow().getHandle();
@@ -141,7 +144,6 @@ public class PS5ControllerClient implements ClientModInitializer {
             GLFW.glfwSetCursorPos(handle,cx[0],cy[0]);
         }
         double sx=cx[0]*screen.width/mc.getWindow().getWidth(), sy=cy[0]*screen.height/mc.getWindow().getHeight();
-        curX=sx; curY=sy;
         int dir=dpad();
         if (dir!=0 && System.currentTimeMillis()-lastNav>170) {
             if (screen instanceof HandledScreen) moveSlot(mc,(HandledScreen<?>)screen,dir);
@@ -162,26 +164,20 @@ public class PS5ControllerClient implements ClientModInitializer {
         drawCross(mc, matrices, sx, sy);
         copyPrev();
     }
-
     private static void drawCross(MinecraftClient mc, MatrixStack m, double x, double y) {
         int cx=(int)x, cy=(int)y;
         mc.textRenderer.draw(m, "+", cx-2, cy-4, 0xFFFFFF);
         mc.textRenderer.draw(m, "|", cx-1, cy-8, 0xFFFFFF);
         mc.textRenderer.draw(m, "|", cx-1, cy+2, 0xFFFFFF);
     }
-
     private static int dpad() {
-        if (hit(mapUp)) return 1;
-        if (hit(mapDown)) return 2;
-        if (hit(mapLeft)) return 3;
-        if (hit(mapRight)) return 4;
+        if (hit(mapRight) || lastHat == 1 || (bt[11] && !bt[12] && !bt[13])) return 4;
+        if (hit(mapUp) || lastHat == 2 || bt[12]) return 1;
+        if (hit(mapDown) || lastHat == 4 || bt[13]) return 2;
+        if (hit(mapLeft) || lastHat == 8 || bt[14]) return 3;
         return 0;
     }
-    private static boolean hit(int code) {
-        if (code>=100) return lastHat==(code-100);
-        return code>=0 && code<bt.length && bt[code];
-    }
-
+    private static boolean hit(int code) { if (code>=100) return lastHat==(code-100); return code>=0 && code<bt.length && bt[code]; }
     private static void moveButton(MinecraftClient mc, Screen screen, int dir) {
         List<ClickableWidget> list=new ArrayList<>();
         for (Element e: screen.children()) if (e instanceof ClickableWidget && ((ClickableWidget)e).visible) list.add((ClickableWidget)e);
@@ -192,7 +188,6 @@ public class PS5ControllerClient implements ClientModInitializer {
         ClickableWidget w=list.get(focus);
         GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), (w.x+w.getWidth()/2.0)*mc.getWindow().getWidth()/screen.width, (w.y+w.getHeight()/2.0)*mc.getWindow().getHeight()/screen.height);
     }
-
     private static void moveSlot(MinecraftClient mc, HandledScreen<?> screen, int dir) {
         int left=(screen.width-176)/2, top=top(screen);
         double[] cx={0}, cy={0}; GLFW.glfwGetCursorPos(mc.getWindow().getHandle(),cx,cy);
@@ -209,7 +204,6 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (pick==null) return;
         GLFW.glfwSetCursorPos(mc.getWindow().getHandle(), (left+pick.x+8)*mc.getWindow().getWidth()/screen.width, (top+pick.y+8)*mc.getWindow().getHeight()/screen.height);
     }
-
     private static void quick(MinecraftClient mc, HandledScreen<?> screen, double sx, double sy) {
         Slot slot=slotAt(screen,sx,sy);
         if (slot!=null && mc.player!=null && mc.interactionManager!=null)
@@ -225,7 +219,6 @@ public class PS5ControllerClient implements ClientModInitializer {
     }
     private static int top(HandledScreen<?> screen) { int max=0; for (Slot s: screen.getScreenHandler().slots) if (s.y>max) max=s.y; return (screen.height-(max+26))/2; }
     private static boolean list(Screen screen) { for (Element e: screen.children()) if (e.getClass().getName().contains("WorldList")||e.getClass().getName().contains("EntryList")) return true; return false; }
-
     private static boolean read() {
         if (state==null) state=GLFWGamepadState.malloc();
         if (!mapped) { mapped=true; try (MemoryStack st=MemoryStack.stackPush()) { GLFW.glfwUpdateGamepadMappings(st.UTF8(SDL)); } catch (Throwable ignored) {} }
@@ -245,7 +238,7 @@ public class PS5ControllerClient implements ClientModInitializer {
                 if (b.remaining()>10) bt[L3]=b.get(10)!=0;
                 if (b.remaining()>11) bt[R3]=b.get(11)!=0;
             }
-            hats(id); jid=id; if (restL>2f) { restL=ax[4]; restR=ax[5]; } return true;
+            hats(id); jid=id; String n=GLFW.glfwGetJoystickName(id); padName=n==null?"PS5 Controller":n; if (restL>2f) { restL=ax[4]; restR=ax[5]; } return true;
         }
         return false;
     }
