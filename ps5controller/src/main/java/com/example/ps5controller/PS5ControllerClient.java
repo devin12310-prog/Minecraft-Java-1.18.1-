@@ -8,11 +8,13 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.toast.SystemToast;
 import net.minecraft.client.util.InputUtil;
@@ -29,11 +31,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * PS5 DualSense support over Bluetooth (read through GLFW).
- * L3 = crouch (hold), R3 = sprint (toggle). Menu and game logic are separated.
+ * PS5 DualSense support over Bluetooth (GLFW).
+ * L3 = crouch (hold), R3 = sprint (toggle).
+ * D-pad is read from gamepad buttons AND hats AND hat-axes (DualSense quirk).
  */
 public class PS5ControllerClient implements ClientModInitializer {
 
@@ -95,6 +99,9 @@ public class PS5ControllerClient implements ClientModInitializer {
     private static double mLastSx, mLastSy, scrollAcc;
     private static Screen lastScreen;
 
+    private static int menuFocusIndex = 0;
+    private static long lastDpadNavMs;
+
     @Override
     public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(PS5ControllerClient::tick);
@@ -118,7 +125,9 @@ public class PS5ControllerClient implements ClientModInitializer {
         return "Controller: " + n;
     }
 
-    private static boolean pressed(ByteBuffer b, int i) { return b.get(i) != 0; }
+    private static boolean pressed(ByteBuffer b, int i) {
+        return i < b.remaining() && b.get(i) != 0;
+    }
 
     private static boolean looksLikeDualSense(int jid) {
         String nm = GLFW.glfwGetJoystickName(jid);
@@ -141,35 +150,89 @@ public class PS5ControllerClient implements ClientModInitializer {
         } catch (Throwable ignored) { }
     }
 
+    private static void applyHat(int hat) {
+        if (hat == GLFW.GLFW_HAT_CENTERED || hat == 0) return;
+        if ((hat & GLFW.GLFW_HAT_UP) != 0 || hat == 1) bt[DPAD_UP] = true;
+        if ((hat & GLFW.GLFW_HAT_RIGHT) != 0 || hat == 3) bt[DPAD_RIGHT] = true;
+        if ((hat & GLFW.GLFW_HAT_DOWN) != 0 || hat == 5) bt[DPAD_DOWN] = true;
+        if ((hat & GLFW.GLFW_HAT_LEFT) != 0 || hat == 7) bt[DPAD_LEFT] = true;
+        if (hat == 2) { bt[DPAD_UP] = true; bt[DPAD_RIGHT] = true; }
+        if (hat == 4) { bt[DPAD_RIGHT] = true; bt[DPAD_DOWN] = true; }
+        if (hat == 6) { bt[DPAD_DOWN] = true; bt[DPAD_LEFT] = true; }
+        if (hat == 8) { bt[DPAD_LEFT] = true; bt[DPAD_UP] = true; }
+    }
+
+    private static void applyHatAxes(FloatBuffer a) {
+        if (a == null) return;
+        int n = a.remaining();
+        for (int pair = 6; pair + 1 < n; pair += 2) {
+            float hx = a.get(pair);
+            float hy = a.get(pair + 1);
+            if (Math.abs(hx) < 0.5f && Math.abs(hy) < 0.5f) continue;
+            if (hy < -0.5f) bt[DPAD_UP] = true;
+            if (hy > 0.5f) bt[DPAD_DOWN] = true;
+            if (hx < -0.5f) bt[DPAD_LEFT] = true;
+            if (hx > 0.5f) bt[DPAD_RIGHT] = true;
+            return;
+        }
+    }
+
+    private static void fillDpadFromRaw(int jid) {
+        try {
+            ByteBuffer h = GLFW.glfwGetJoystickHats(jid);
+            if (h != null && h.remaining() > 0) {
+                applyHat(h.get(0) & 0xFF);
+            }
+        } catch (Throwable ignored) { }
+        try {
+            FloatBuffer a = GLFW.glfwGetJoystickAxes(jid);
+            applyHatAxes(a);
+        } catch (Throwable ignored) { }
+        try {
+            ByteBuffer b = GLFW.glfwGetJoystickButtons(jid);
+            if (b != null && b.remaining() >= 15) {
+                if (pressed(b, 11)) bt[DPAD_UP] = true;
+                if (pressed(b, 12)) bt[DPAD_RIGHT] = true;
+                if (pressed(b, 13)) bt[DPAD_DOWN] = true;
+                if (pressed(b, 14)) bt[DPAD_LEFT] = true;
+            }
+        } catch (Throwable ignored) { }
+    }
+
     private static boolean tryJid(int jid) {
         if (!GLFW.glfwJoystickPresent(jid)) return false;
-        if (GLFW.glfwJoystickIsGamepad(jid) && GLFW.glfwGetGamepadState(jid, state)) {
+
+        if (GLFW.glfwJoystickIsGamepad(jid) && state != null && GLFW.glfwGetGamepadState(jid, state)) {
             for (int i = 0; i < 6; i++) ax[i] = state.axes(i);
             for (int i = 0; i < 15; i++) bt[i] = state.buttons(i) == GLFW.GLFW_PRESS;
+            fillDpadFromRaw(jid);
             activeJid = jid;
             return true;
         }
+
         if (!looksLikeDualSense(jid)) return false;
         FloatBuffer a = GLFW.glfwGetJoystickAxes(jid);
         ByteBuffer b = GLFW.glfwGetJoystickButtons(jid);
-        ByteBuffer h = GLFW.glfwGetJoystickHats(jid);
-        if (a == null || b == null || a.remaining() < 6 || b.remaining() < 12) return false;
-        ax[0] = a.get(0); ax[1] = a.get(1); ax[2] = a.get(2);
-        ax[3] = a.remaining() > 5 ? a.get(5) : a.get(3);
-        ax[4] = a.get(3); ax[5] = a.get(4);
+        if (a == null || b == null || a.remaining() < 4 || b.remaining() < 12) return false;
+
+        ax[0] = a.get(0);
+        ax[1] = a.get(1);
+        ax[2] = a.remaining() > 2 ? a.get(2) : 0f;
+        ax[3] = a.remaining() > 5 ? a.get(5) : (a.remaining() > 3 ? a.get(3) : 0f);
+        ax[4] = a.remaining() > 3 ? a.get(3) : -1f;
+        ax[5] = a.remaining() > 4 ? a.get(4) : -1f;
         Arrays.fill(bt, false);
-        bt[CROSS] = pressed(b, 1); bt[CIRCLE] = pressed(b, 2);
-        bt[SQUARE] = pressed(b, 0); bt[TRIANGLE] = pressed(b, 3);
-        bt[L1] = pressed(b, 4); bt[R1] = pressed(b, 5);
-        bt[CREATE] = pressed(b, 8); bt[OPTIONS] = pressed(b, 9);
-        bt[L3] = pressed(b, 10); bt[R3] = pressed(b, 11);
-        if (h != null && h.remaining() > 0) {
-            int hv = h.get(0) & 0xFF;
-            bt[DPAD_UP] = (hv & GLFW.GLFW_HAT_UP) != 0;
-            bt[DPAD_RIGHT] = (hv & GLFW.GLFW_HAT_RIGHT) != 0;
-            bt[DPAD_DOWN] = (hv & GLFW.GLFW_HAT_DOWN) != 0;
-            bt[DPAD_LEFT] = (hv & GLFW.GLFW_HAT_LEFT) != 0;
-        }
+        bt[CROSS] = pressed(b, 1);
+        bt[CIRCLE] = pressed(b, 2);
+        bt[SQUARE] = pressed(b, 0);
+        bt[TRIANGLE] = pressed(b, 3);
+        bt[L1] = pressed(b, 4);
+        bt[R1] = pressed(b, 5);
+        bt[CREATE] = pressed(b, 8);
+        bt[OPTIONS] = pressed(b, 9);
+        bt[L3] = pressed(b, 10);
+        bt[R3] = pressed(b, 11);
+        fillDpadFromRaw(jid);
         activeJid = jid;
         return true;
     }
@@ -266,6 +329,48 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (yaw != 0f || pitch != 0f) mc.player.changeLookDirection(yaw, pitch);
     }
 
+    private static List<ClickableWidget> collectWidgets(Screen screen) {
+        List<ClickableWidget> widgets = new ArrayList<>();
+        for (Element e : screen.children()) {
+            if (e instanceof ClickableWidget) {
+                ClickableWidget w = (ClickableWidget) e;
+                if (w.visible && w.active) widgets.add(w);
+            }
+        }
+        widgets.sort(Comparator.comparingInt((ClickableWidget w) -> w.y).thenComparingInt(w -> w.x));
+        return widgets;
+    }
+
+    private static void applyMenuDpadFocus(Screen screen) {
+        List<ClickableWidget> widgets = collectWidgets(screen);
+        if (widgets.isEmpty()) return;
+
+        long now = System.currentTimeMillis();
+        boolean moved = false;
+        if (now - lastDpadNavMs >= 160) {
+            if (bt[DPAD_UP] && !mprev[DPAD_UP]) { menuFocusIndex--; moved = true; }
+            if (bt[DPAD_DOWN] && !mprev[DPAD_DOWN]) { menuFocusIndex++; moved = true; }
+            if (bt[DPAD_LEFT] && !mprev[DPAD_LEFT]) { menuFocusIndex--; moved = true; }
+            if (bt[DPAD_RIGHT] && !mprev[DPAD_RIGHT]) { menuFocusIndex++; moved = true; }
+            if (moved) lastDpadNavMs = now;
+        }
+
+        if (menuFocusIndex < 0) menuFocusIndex = widgets.size() - 1;
+        if (menuFocusIndex >= widgets.size()) menuFocusIndex = 0;
+
+        for (int i = 0; i < widgets.size(); i++) {
+            widgets.get(i).setFocused(i == menuFocusIndex);
+        }
+
+        if (bt[CROSS] && !mprev[CROSS] && menuFocusIndex >= 0 && menuFocusIndex < widgets.size()) {
+            ClickableWidget w = widgets.get(menuFocusIndex);
+            double cx = w.x + w.getWidth() / 2.0;
+            double cy = w.y + w.getHeight() / 2.0;
+            screen.mouseClicked(cx, cy, 0);
+            screen.mouseReleased(cx, cy, 0);
+        }
+    }
+
     private static void menuFrame(MinecraftClient mc, Screen screen) {
         long n = System.nanoTime();
         float dt = lastMenuFrame == 0 ? 0f : (n - lastMenuFrame) / 1_000_000_000f;
@@ -300,9 +405,12 @@ public class PS5ControllerClient implements ClientModInitializer {
             System.arraycopy(bt, 0, mprev, 0, 15);
             mLeftHeld = mRightHeld = false;
             scrollAcc = 0;
+            menuFocusIndex = 0;
             mLastSx = sx; mLastSy = sy;
             return;
         }
+
+        applyMenuDpadFocus(screen);
 
         if (bt[CROSS] && !mprev[CROSS]) { screen.mouseClicked(sx, sy, 0); mLeftHeld = true; }
         if (!bt[CROSS] && mprev[CROSS] && mLeftHeld) { screen.mouseReleased(sx, sy, 0); mLeftHeld = false; }
