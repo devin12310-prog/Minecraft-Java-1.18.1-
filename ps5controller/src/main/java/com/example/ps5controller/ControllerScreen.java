@@ -1,116 +1,64 @@
 package com.example.ps5controller;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ClickableWidget;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.text.LiteralText;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
-public final class ControllerScreen {
-    private static int selectedIndex = 0;
-    private static long lastNavigationTime = 0;
-    private static final long NAVIGATION_DELAY = 150; // milliseconds
+/** Simple picker: Automatic, or one button per detected controller. */
+public class ControllerScreen extends Screen {
+    private final Screen parent;
 
-    private ControllerScreen() {
+    public ControllerScreen(Screen parent) {
+        super(new LiteralText("Controller"));
+        this.parent = parent;
     }
 
-    public static void applyDpadNavigation() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.currentScreen == null) {
-            selectedIndex = 0;
-            return;
+    @Override
+    protected void init() {
+        int x = this.width / 2 - 110;
+        int y = 56;
+
+        String autoLabel = (PS5ControllerClient.isAuto() ? "> " : "") + "Automatic";
+        this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText(autoLabel), b -> {
+            PS5ControllerClient.setPreferredName(null);
+            this.init(this.client, this.width, this.height);
+        }));
+        y += 24;
+
+        List<Integer> pads = PS5ControllerClient.usablePads();
+        int shown = 0;
+        for (int jid : pads) {
+            if (shown >= 8) break;
+            final String name = PS5ControllerClient.nameOf(jid);
+            boolean selected = !PS5ControllerClient.isAuto() && name.equals(PS5ControllerClient.getPreferredName());
+            String label = (selected ? "> " : "") + (name.length() > 28 ? name.substring(0, 28) : name);
+            this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText(label), b -> {
+                PS5ControllerClient.setPreferredName(name);
+                this.init(this.client, this.width, this.height);
+            }));
+            y += 24;
+            shown++;
         }
 
-        Screen screen = client.currentScreen;
-        List<ClickableWidget> widgets = collectWidgets(screen);
-        if (widgets.isEmpty()) {
-            selectedIndex = 0;
-            return;
-        }
-
-        long currentTime = System.currentTimeMillis();
-        boolean navigationPressed = false;
-
-        if (ControllerInput.isDpadUp()) {
-            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
-                moveSelection(widgets, -1);
-                lastNavigationTime = currentTime;
-            }
-            navigationPressed = true;
-        }
-
-        if (ControllerInput.isDpadDown()) {
-            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
-                moveSelection(widgets, 1);
-                lastNavigationTime = currentTime;
-            }
-            navigationPressed = true;
-        }
-
-        if (ControllerInput.isDpadLeft()) {
-            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
-                moveSelection(widgets, -1);
-                lastNavigationTime = currentTime;
-            }
-            navigationPressed = true;
-        }
-
-        if (ControllerInput.isDpadRight()) {
-            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
-                moveSelection(widgets, 1);
-                lastNavigationTime = currentTime;
-            }
-            navigationPressed = true;
-        }
-
-        // Handle button press to click selected widget
-        if (ControllerInput.isButtonCross()) {
-            ClickableWidget selected = widgets.get(selectedIndex);
-            selected.onPress();
-        }
-
-        if (!navigationPressed) {
-            refreshSelection(widgets);
-        }
+        this.addDrawableChild(new ButtonWidget(x, this.height - 32, 220, 20, new LiteralText("Done"), b -> this.onClose()));
     }
 
-    private static void moveSelection(List<ClickableWidget> widgets, int direction) {
-        if (widgets.isEmpty()) {
-            return;
-        }
-
-        selectedIndex = Math.floorMod(selectedIndex + direction, widgets.size());
-        refreshSelection(widgets);
+    @Override
+    public void onClose() {
+        this.client.setScreen(parent);
     }
 
-    private static void refreshSelection(List<ClickableWidget> widgets) {
-        if (selectedIndex < 0 || selectedIndex >= widgets.size()) {
-            selectedIndex = 0;
-        }
-
-        // Unfocus all widgets first
-        for (ClickableWidget widget : widgets) {
-            widget.setFocused(false);
-        }
-
-        // Focus the selected widget
-        ClickableWidget selected = widgets.get(selectedIndex);
-        selected.setFocused(true);
-        selected.active = true;
-        selected.visible = true;
-    }
-
-    private static List<ClickableWidget> collectWidgets(Screen screen) {
-        List<ClickableWidget> widgets = new ArrayList<>();
-        screen.children().stream()
-                .filter(ClickableWidget.class::isInstance)
-                .map(ClickableWidget.class::cast)
-                .filter(widget -> widget.visible && widget.active)
-                .sorted(Comparator.comparingInt(widget -> widget.y)
-                        .thenComparingInt(widget -> widget.x))
-                .forEach(widgets::add);
-        return widgets;
+    @Override
+    public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+        this.renderBackground(matrices);
+        drawCenteredText(matrices, this.textRenderer, this.title, this.width / 2, 20, 0xFFFFFF);
+        String status = PS5ControllerClient.isActive()
+                ? "In use: " + PS5ControllerClient.activeName()
+                : "No controller in use. Pair one over Bluetooth.";
+        drawCenteredText(matrices, this.textRenderer, new LiteralText(status), this.width / 2, 36, 0xAAAAAA);
+        super.render(matrices, mouseX, mouseY, delta);
     }
 }
