@@ -1,0 +1,6 @@
+unzip ps5controller-src.zip
+cp -r ps5controller/. .
+rm -rf ps5controller ps5controller-src.zip
+git add -A
+git commit -m "add mod"
+git push
