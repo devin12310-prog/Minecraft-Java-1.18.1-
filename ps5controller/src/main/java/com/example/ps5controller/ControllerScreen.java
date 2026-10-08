@@ -7,7 +7,7 @@ import net.minecraft.text.LiteralText;
 
 import java.util.List;
 
-/** Simple picker: Automatic, or one button per detected controller. */
+/** Picker plus a button into the remap screen. */
 public class ControllerScreen extends Screen {
     private final Screen parent;
 
@@ -31,7 +31,7 @@ public class ControllerScreen extends Screen {
         List<Integer> pads = PS5ControllerClient.usablePads();
         int shown = 0;
         for (int jid : pads) {
-            if (shown >= 8) break;
+            if (shown >= 6) break;
             final String name = PS5ControllerClient.nameOf(jid);
             boolean selected = !PS5ControllerClient.isAuto() && name.equals(PS5ControllerClient.getPreferredName());
             String label = (selected ? "> " : "") + (name.length() > 28 ? name.substring(0, 28) : name);
@@ -43,6 +43,8 @@ public class ControllerScreen extends Screen {
             shown++;
         }
 
+        this.addDrawableChild(new ButtonWidget(x, this.height - 56, 220, 20, new LiteralText("Change controls"), b ->
+                this.client.setScreen(new ControlsScreen(this))));
         this.addDrawableChild(new ButtonWidget(x, this.height - 32, 220, 20, new LiteralText("Done"), b -> this.onClose()));
     }
 
