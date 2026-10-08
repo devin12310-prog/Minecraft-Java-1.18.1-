@@ -3,13 +3,18 @@
   "id": "ps5controller",
   "version": "${version}",
   "name": "PS5 Controller",
-  "description": "Adds PS5 controller support with D-pad navigation and menu hover assistance.",
+  "description": "Play with a Bluetooth PS5 DualSense controller. D-pad menu nav, L3 crouch, R3 sprint, separated menu/game logic.",
   "authors": ["devin12310-prog"],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
-    "client": [
-      "com.example.ps5controller.PS5ControllerClient"
-    ]
+    "client": ["com.example.ps5controller.PS5ControllerClient"]
+  },
+  "mixins": ["ps5controller.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.12.0",
+    "fabric": "*",
+    "minecraft": "~1.18.1",
+    "java": ">=17"
   }
 }
