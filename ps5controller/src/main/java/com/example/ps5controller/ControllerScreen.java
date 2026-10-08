@@ -43,6 +43,8 @@ public class ControllerScreen extends Screen {
             shown++;
         }
 
+        this.addDrawableChild(new ButtonWidget(x, this.height - 80, 220, 20, new LiteralText("Map D-pad"), b ->
+                this.client.setScreen(new DpadMapScreen(this))));
         this.addDrawableChild(new ButtonWidget(x, this.height - 56, 220, 20, new LiteralText("Change controls"), b ->
                 this.client.setScreen(new ControlsScreen(this))));
         this.addDrawableChild(new ButtonWidget(x, this.height - 32, 220, 20, new LiteralText("Done"), b -> this.onClose()));
