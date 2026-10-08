@@ -74,6 +74,8 @@ public class PS5ControllerClient implements ClientModInitializer {
     };
     public static final int[] BINDS = new int[ACT_NAMES.length];
     public static volatile int listeningAction = -1;
+    public static volatile int mappingDpad = 0; // 0 off, 1 up, 2 down, 3 left, 4 right
+    public static int mapUp = DPAD_UP, mapDown = DPAD_DOWN, mapLeft = DPAD_LEFT, mapRight = DPAD_RIGHT;
 
     private static final String DUALSENSE_MAPPINGS =
             "030000004c050000e60c000000000000,PS5 Controller,a:b1,b:b2,x:b0,y:b3,back:b8,guide:b13,"
@@ -193,9 +195,7 @@ public class PS5ControllerClient implements ClientModInitializer {
                 for (int i = 0; i < h.remaining(); i++) applyHat(h.get(i) & 0xFF);
             }
         } catch (Throwable ignored) { }
-        try {
-            applyHatAxes(GLFW.glfwGetJoystickAxes(jid));
-        } catch (Throwable ignored) { }
+        // Axes are the sticks. D-pad comes from hats and buttons only.
         try {
             ByteBuffer b = GLFW.glfwGetJoystickButtons(jid);
             if (b != null) {
@@ -338,6 +338,7 @@ public class PS5ControllerClient implements ClientModInitializer {
                 if (i > 0) sb.append(',');
                 sb.append(BINDS[i]);
             }
+            sb.append('|').append(mapUp).append(',').append(mapDown).append(',').append(mapLeft).append(',').append(mapRight);
             Files.writeString(bindFile(), sb.toString());
         } catch (Exception ignored) { }
     }
@@ -347,7 +348,19 @@ public class PS5ControllerClient implements ClientModInitializer {
         try {
             Path f = bindFile();
             if (!Files.exists(f)) return;
-            String[] parts = Files.readString(f).trim().split(",");
+            String raw = Files.readString(f).trim();
+            String binds = raw;
+            if (raw.contains("|")) {
+                binds = raw.substring(0, raw.indexOf('|'));
+                String[] m = raw.substring(raw.indexOf('|') + 1).split(",");
+                if (m.length >= 4) {
+                    mapUp = Integer.parseInt(m[0].trim());
+                    mapDown = Integer.parseInt(m[1].trim());
+                    mapLeft = Integer.parseInt(m[2].trim());
+                    mapRight = Integer.parseInt(m[3].trim());
+                }
+            }
+            String[] parts = binds.split(",");
             for (int i = 0; i < BINDS.length && i < parts.length; i++) {
                 BINDS[i] = Integer.parseInt(parts[i].trim());
             }
@@ -424,19 +437,27 @@ public class PS5ControllerClient implements ClientModInitializer {
         return widgets;
     }
 
+    private static boolean padBit(int index) {
+        return index >= 0 && index < bt.length && bt[index];
+    }
+
     private static int dpadDir() {
-        boolean up = bt[DPAD_UP];
-        boolean down = bt[DPAD_DOWN];
-        boolean left = bt[DPAD_LEFT];
-        boolean right = bt[DPAD_RIGHT];
-        if (up && down) { up = !mprev[DPAD_UP]; down = !mprev[DPAD_DOWN]; }
-        if (left && right) { left = !mprev[DPAD_LEFT]; right = !mprev[DPAD_RIGHT]; }
-        // This DualSense reports physical right as the up bit. Left is already correct.
-        if (up && !down) return 4;
-        if (down && !up) return 2;
-        if (left && !right) return 3;
-        if (right && !left) return 1;
+        boolean up = padBit(mapUp);
+        boolean down = padBit(mapDown);
+        boolean left = padBit(mapLeft);
+        boolean right = padBit(mapRight);
+        if (up && down) up = down = false;
+        if (left && right) left = right = false;
+        if (up) return 1;
+        if (down) return 2;
+        if (left) return 3;
+        if (right) return 4;
         return 0;
+    }
+
+    public static int rawDpadEdge() {
+        for (int i = 11; i <= 14 && i < bt.length; i++) if (bt[i] && !prev[i]) return i;
+        return -1;
     }
 
     private static void applyMenuDpadFocus(MinecraftClient mc, Screen screen) {
@@ -623,14 +644,6 @@ public class PS5ControllerClient implements ClientModInitializer {
         int color = wasActive ? 0x55FF55 : 0xFF5555;
         int w = mc.textRenderer.getWidth(text);
         mc.textRenderer.drawWithShadow(matrices, text, mc.getWindow().getScaledWidth() - w - 4, 4, color);
-        if (wasActive && !mc.options.debugEnabled) {
-            String dpad = "D-pad U:" + (bt[DPAD_UP] ? "1" : "0")
-                    + " D:" + (bt[DPAD_DOWN] ? "1" : "0")
-                    + " L:" + (bt[DPAD_LEFT] ? "1" : "0")
-                    + " R:" + (bt[DPAD_RIGHT] ? "1" : "0");
-            int dw = mc.textRenderer.getWidth(dpad);
-            mc.textRenderer.drawWithShadow(matrices, dpad, mc.getWindow().getScaledWidth() - dw - 4, 14, 0xFFFF55);
-        }
     }
 
     private static void tick(MinecraftClient mc) {
