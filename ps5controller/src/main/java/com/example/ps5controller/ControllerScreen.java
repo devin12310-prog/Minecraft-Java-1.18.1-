@@ -10,6 +10,8 @@ import java.util.List;
 
 public final class ControllerScreen {
     private static int selectedIndex = 0;
+    private static long lastNavigationTime = 0;
+    private static final long NAVIGATION_DELAY = 150; // milliseconds
 
     private ControllerScreen() {
     }
@@ -28,27 +30,50 @@ public final class ControllerScreen {
             return;
         }
 
+        long currentTime = System.currentTimeMillis();
+        boolean navigationPressed = false;
+
         if (ControllerInput.isDpadUp()) {
-            moveSelection(widgets, -1);
-            return;
+            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
+                moveSelection(widgets, -1);
+                lastNavigationTime = currentTime;
+            }
+            navigationPressed = true;
         }
 
         if (ControllerInput.isDpadDown()) {
-            moveSelection(widgets, 1);
-            return;
+            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
+                moveSelection(widgets, 1);
+                lastNavigationTime = currentTime;
+            }
+            navigationPressed = true;
         }
 
         if (ControllerInput.isDpadLeft()) {
-            moveSelection(widgets, -1);
-            return;
+            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
+                moveSelection(widgets, -1);
+                lastNavigationTime = currentTime;
+            }
+            navigationPressed = true;
         }
 
         if (ControllerInput.isDpadRight()) {
-            moveSelection(widgets, 1);
-            return;
+            if (currentTime - lastNavigationTime > NAVIGATION_DELAY) {
+                moveSelection(widgets, 1);
+                lastNavigationTime = currentTime;
+            }
+            navigationPressed = true;
         }
 
-        refreshSelection(widgets);
+        // Handle button press to click selected widget
+        if (ControllerInput.isButtonCross()) {
+            ClickableWidget selected = widgets.get(selectedIndex);
+            selected.onPress();
+        }
+
+        if (!navigationPressed) {
+            refreshSelection(widgets);
+        }
     }
 
     private static void moveSelection(List<ClickableWidget> widgets, int direction) {
@@ -65,6 +90,12 @@ public final class ControllerScreen {
             selectedIndex = 0;
         }
 
+        // Unfocus all widgets first
+        for (ClickableWidget widget : widgets) {
+            widget.setFocused(false);
+        }
+
+        // Focus the selected widget
         ClickableWidget selected = widgets.get(selectedIndex);
         selected.setFocused(true);
         selected.active = true;
@@ -77,7 +108,8 @@ public final class ControllerScreen {
                 .filter(ClickableWidget.class::isInstance)
                 .map(ClickableWidget.class::cast)
                 .filter(widget -> widget.visible && widget.active)
-                .sorted(Comparator.comparingInt(widget -> widget.y))
+                .sorted(Comparator.comparingInt(widget -> widget.y)
+                        .thenComparingInt(widget -> widget.x))
                 .forEach(widgets::add);
         return widgets;
     }
