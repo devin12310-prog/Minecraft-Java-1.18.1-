@@ -106,6 +106,7 @@ public class PS5ControllerClient implements ClientModInitializer {
 
     private static int menuFocusIndex = 0;
     private static long lastDpadNavMs;
+    private static long suppressDropUntil;
 
     @Override
     public void onInitializeClient() {
@@ -169,16 +170,19 @@ public class PS5ControllerClient implements ClientModInitializer {
 
     private static void applyHatAxes(FloatBuffer a) {
         if (a == null) return;
+        if (bt[DPAD_UP] || bt[DPAD_DOWN] || bt[DPAD_LEFT] || bt[DPAD_RIGHT]) return;
         int n = a.remaining();
-        for (int pair = 0; pair + 1 < n; pair++) {
-            float hx = a.get(pair);
-            float hy = a.get(pair + 1);
-            if (Math.abs(hx) < 0.5f && Math.abs(hy) < 0.5f) continue;
-            if (pair < 4 && Math.abs(hx) < 0.9f && Math.abs(hy) < 0.9f) continue;
-            if (hy < -0.5f) bt[DPAD_UP] = true;
-            if (hy > 0.5f) bt[DPAD_DOWN] = true;
-            if (hx < -0.5f) bt[DPAD_LEFT] = true;
-            if (hx > 0.5f) bt[DPAD_RIGHT] = true;
+        // Only the last two axes. Scanning every pair also saw the sticks and set up+down together.
+        if (n < 2) return;
+        float hx = a.get(n - 2);
+        float hy = a.get(n - 1);
+        if (Math.abs(hx) < 0.6f && Math.abs(hy) < 0.6f) return;
+        if (Math.abs(hy) >= Math.abs(hx)) {
+            if (hy < -0.6f) bt[DPAD_UP] = true;
+            if (hy > 0.6f) bt[DPAD_DOWN] = true;
+        } else {
+            if (hx < -0.6f) bt[DPAD_LEFT] = true;
+            if (hx > 0.6f) bt[DPAD_RIGHT] = true;
         }
     }
 
@@ -421,17 +425,18 @@ public class PS5ControllerClient implements ClientModInitializer {
     }
 
     private static int dpadDir() {
-        // One direction per press. Opposite bits (hat flicker) cancel.
-        boolean up = bt[DPAD_UP] && !bt[DPAD_DOWN];
-        boolean down = bt[DPAD_DOWN] && !bt[DPAD_UP];
-        boolean left = bt[DPAD_LEFT] && !bt[DPAD_RIGHT];
-        boolean right = bt[DPAD_RIGHT] && !bt[DPAD_LEFT];
-        int n = (up?1:0)+(down?1:0)+(left?1:0)+(right?1:0);
-        if (n != 1) return 0;
-        if (up) return 1;
-        if (down) return 2;
-        if (left) return 3;
-        return 4;
+        boolean up = bt[DPAD_UP];
+        boolean down = bt[DPAD_DOWN];
+        boolean left = bt[DPAD_LEFT];
+        boolean right = bt[DPAD_RIGHT];
+        if (up && down) { up = !mprev[DPAD_UP]; down = !mprev[DPAD_DOWN]; }
+        if (left && right) { left = !mprev[DPAD_LEFT]; right = !mprev[DPAD_RIGHT]; }
+        // This DualSense reports physical right as the up bit. Left is already correct.
+        if (up && !down) return 4;
+        if (down && !up) return 2;
+        if (left && !right) return 3;
+        if (right && !left) return 1;
+        return 0;
     }
 
     private static void applyMenuDpadFocus(MinecraftClient mc, Screen screen) {
@@ -444,7 +449,7 @@ public class PS5ControllerClient implements ClientModInitializer {
         if (dir == 0) return;
         long now = System.currentTimeMillis();
         // One step only. 220ms blocks the double-fire from render + hat bounce.
-        if (now - lastDpadNavMs < 220) return;
+        if (now - lastDpadNavMs < 180) return;
         if (menuFocusIndex < 0 || menuFocusIndex >= widgets.size()) menuFocusIndex = 0;
         ClickableWidget cur = widgets.get(menuFocusIndex);
         double cx = cur.x + cur.getWidth() / 2.0;
@@ -568,13 +573,6 @@ public class PS5ControllerClient implements ClientModInitializer {
 
         boolean inventory = screen instanceof HandledScreen;
         int dir = dpadDir();
-        float stickX = dz(ax[0]), stickY = dz(ax[1]);
-        if (inventory && dir == 0) {
-            if (stickY < -0.55f) dir = 1;
-            else if (stickY > 0.55f) dir = 2;
-            else if (stickX < -0.55f) dir = 3;
-            else if (stickX > 0.55f) dir = 4;
-        }
         if (inventory && dir != 0 && System.currentTimeMillis() - lastDpadNavMs >= 160) {
             moveInventoryCursor(mc, (HandledScreen<?>) screen, dir);
             lastDpadNavMs = System.currentTimeMillis();
@@ -600,6 +598,12 @@ public class PS5ControllerClient implements ClientModInitializer {
         boolean backWas = heldPrev(BINDS[ACT_MENU_BACK]);
         if ((back && !backWas) || (bt[OPTIONS] && !mprev[OPTIONS])) {
             screen.keyPressed(GLFW.GLFW_KEY_ESCAPE, 0, 0);
+            // Same press was also Drop, so closing inventory threw an item.
+            prev[CIRCLE] = true;
+            prev[OPTIONS] = true;
+            mprev[CIRCLE] = true;
+            mprev[OPTIONS] = true;
+            suppressDropUntil = System.currentTimeMillis() + 400;
         }
 
         // D-pad menu nav is cursor-only. Arrow keyPressed was also moving focus, so one tap skipped a widget.
@@ -696,7 +700,7 @@ public class PS5ControllerClient implements ClientModInitializer {
         key(mc.options.keyUse, use, useWas);
         keyEdge(mc.options.keySwapHands, BINDS[ACT_SWAP], l2, r2);
         keyEdge(mc.options.keyInventory, BINDS[ACT_INVENTORY], l2, r2);
-        keyEdge(mc.options.keyDrop, BINDS[ACT_DROP], l2, r2);
+        if (System.currentTimeMillis() > suppressDropUntil) keyEdge(mc.options.keyDrop, BINDS[ACT_DROP], l2, r2);
         keyEdge(mc.options.keyTogglePerspective, BINDS[ACT_PERSPECTIVE], l2, r2);
         keyEdge(mc.options.keyPlayerList, BINDS[ACT_TAB], l2, r2);
         if (edge(BINDS[ACT_HOTBAR_NEXT], l2, r2)) mc.player.getInventory().selectedSlot = (mc.player.getInventory().selectedSlot + 1) % 9;
