@@ -4,6 +4,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.LiteralText;
+import org.lwjgl.glfw.GLFW;
 
 public class ControllerScreen extends Screen {
     private final Screen parent;
@@ -16,7 +17,19 @@ public class ControllerScreen extends Screen {
         this.addDrawableChild(new ButtonWidget(this.width / 2 - 77, 28, 74, 20, new LiteralText("Feel"), b -> { page = 1; this.init(client, width, height); }));
         this.addDrawableChild(new ButtonWidget(this.width / 2 + 1, 28, 74, 20, new LiteralText("HUD"), b -> { page = 2; this.init(client, width, height); }));
         this.addDrawableChild(new ButtonWidget(this.width / 2 + 79, 28, 74, 20, new LiteralText("Binds"), b -> { page = 3; this.init(client, width, height); }));
-        if (page == 1) {
+        if (page == 0) {
+            int i = 0;
+            for (int id = 0; id <= GLFW.GLFW_JOYSTICK_LAST && i < 4; id++) {
+                if (!GLFW.glfwJoystickPresent(id)) continue;
+                final int pick = id;
+                String n = GLFW.glfwGetJoystickName(id);
+                if (n == null) n = "Controller";
+                if (n.length() > 18) n = n.substring(0, 18);
+                String label = (pick == PS5ControllerClient.selected ? "* " : "") + n;
+                this.addDrawableChild(new ButtonWidget(x, y + i * 22, 220, 20, new LiteralText(label), b -> { PS5ControllerClient.usePad(pick); this.init(client, width, height); }));
+                i++;
+            }
+        } else if (page == 1) {
             this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText("Deadzone: " + PS5ControllerClient.deadzone), b -> PS5ControllerClient.cycleDeadzone()));
             this.addDrawableChild(new ButtonWidget(x, y + 24, 220, 20, new LiteralText("Look speed: " + PS5ControllerClient.lookSpeed), b -> PS5ControllerClient.cycleLook()));
             this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Menu speed: " + PS5ControllerClient.menuSpeed), b -> PS5ControllerClient.cycleMenu()));
@@ -39,14 +52,9 @@ public class ControllerScreen extends Screen {
         this.renderBackground(matrices);
         drawCenteredText(matrices, this.textRenderer, this.title, this.width / 2, 8, 0xFFFFFF);
         if (page == 0) {
-            String status = PS5ControllerClient.connected ? "Connected: " + PS5ControllerClient.padName : "No controller connected";
-            drawCenteredText(matrices, this.textRenderer, new LiteralText(status), this.width / 2, 54, PS5ControllerClient.connected ? 0x55FF55 : 0xFF5555);
-            int y = 68;
-            java.util.List<String> pads = PS5ControllerClient.pads();
-            if (pads.isEmpty()) drawCenteredText(matrices, this.textRenderer, new LiteralText("Turn the DualSense on, then reopen"), this.width / 2, y, 0xAAAAAA);
-            else for (String p : pads) { drawCenteredText(matrices, this.textRenderer, new LiteralText(p), this.width / 2, y, 0xFFFFFF); y += 10; }
-            drawCenteredText(matrices, this.textRenderer, new LiteralText("Cross Circle Square Triangle  L1 R1 L2 R2"), this.width / 2, y + 8, 0xAAAAAA);
-            drawCenteredText(matrices, this.textRenderer, new LiteralText("L3 R3  Create Options  Touchpad  Mute  D-pad"), this.width / 2, y + 18, 0xAAAAAA);
+            String status = PS5ControllerClient.connected ? "Using: " + PS5ControllerClient.padName : "No controller connected";
+            drawCenteredText(matrices, this.textRenderer, new LiteralText(status), this.width / 2, 52, PS5ControllerClient.connected ? 0x55FF55 : 0xFF5555);
+            drawCenteredText(matrices, this.textRenderer, new LiteralText("Press a pad below to switch"), this.width / 2, 66, 0xAAAAAA);
         }
         super.render(matrices, mouseX, mouseY, delta);
     }
