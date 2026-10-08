@@ -448,6 +448,8 @@ public class PS5ControllerClient implements ClientModInitializer {
         boolean right = padBit(mapRight);
         if (up && down) up = down = false;
         if (left && right) left = right = false;
+        // This pad reports a right press as Up+Left together. Do not treat that as up.
+        if (up && left && !down && !right) return 4;
         if (up) return 1;
         if (down) return 2;
         if (left) return 3;
