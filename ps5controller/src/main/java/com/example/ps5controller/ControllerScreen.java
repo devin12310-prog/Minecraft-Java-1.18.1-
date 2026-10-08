@@ -12,7 +12,7 @@ public class ControllerScreen extends Screen {
     public ControllerScreen(Screen parent) { super(new LiteralText("Controller")); this.parent = parent; }
 
     @Override protected void init() {
-        int x = this.width / 2 - 110, y = 96;
+        int x = this.width / 2 - 110, y = 108;
         this.addDrawableChild(new ButtonWidget(this.width / 2 - 155, 28, 74, 20, new LiteralText("Status"), b -> { page = 0; this.init(client, width, height); }));
         this.addDrawableChild(new ButtonWidget(this.width / 2 - 77, 28, 74, 20, new LiteralText("Feel"), b -> { page = 1; this.init(client, width, height); }));
         this.addDrawableChild(new ButtonWidget(this.width / 2 + 1, 28, 74, 20, new LiteralText("HUD"), b -> { page = 2; this.init(client, width, height); }));
@@ -24,7 +24,7 @@ public class ControllerScreen extends Screen {
                 final int pick = id;
                 String n = GLFW.glfwGetJoystickName(id);
                 if (n == null) n = "Controller";
-                if (n.length() > 18) n = n.substring(0, 18);
+                if (n.length() > 16) n = n.substring(0, 16);
                 this.addDrawableChild(new ButtonWidget(x, y + i * 22, 220, 20, new LiteralText((pick == PS5ControllerClient.selected ? "* " : "") + n), b -> { PS5ControllerClient.usePad(pick); this.init(client, width, height); }));
                 i++;
             }
@@ -41,6 +41,8 @@ public class ControllerScreen extends Screen {
             this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText("Map every button"), b -> this.client.setScreen(new ControlsScreen(this))));
             this.addDrawableChild(new ButtonWidget(x, y + 24, 220, 20, new LiteralText("Map D-pad, all 4"), b -> this.client.setScreen(new DpadMapScreen(this))));
             this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Load PS5 layout"), b -> { PS5ControllerClient.applyDefault(); b.setMessage(new LiteralText("PS5 layout loaded")); }));
+            this.addDrawableChild(new ButtonWidget(x, y + 72, 220, 20, new LiteralText("Load Xbox layout"), b -> { PS5ControllerClient.applyXbox(); b.setMessage(new LiteralText("Xbox layout loaded")); }));
+            this.addDrawableChild(new ButtonWidget(x, y + 96, 220, 20, new LiteralText("Load Legion Go layout"), b -> { PS5ControllerClient.applyLegion(); b.setMessage(new LiteralText("Legion Go layout loaded")); }));
         }
         this.addDrawableChild(new ButtonWidget(x, this.height - 28, 220, 20, new LiteralText("Done"), b -> this.onClose()));
     }
@@ -65,9 +67,10 @@ public class ControllerScreen extends Screen {
         this.renderBackground(matrices);
         drawCenteredText(matrices, this.textRenderer, this.title, this.width / 2, 8, 0xFFFFFF);
         if (page == 0) {
-            String status = PS5ControllerClient.connected ? "Using: " + PS5ControllerClient.padName : "No controller connected";
-            drawCenteredText(matrices, this.textRenderer, new LiteralText(status), this.width / 2, 52, PS5ControllerClient.connected ? 0x55FF55 : 0xFF5555);
-            drawCenteredText(matrices, this.textRenderer, new LiteralText("PS5 layout is loaded"), this.width / 2, 66, 0xAAAAAA);
+            String status = PS5ControllerClient.connected ? "Connected" : "Not connected";
+            drawCenteredText(matrices, this.textRenderer, new LiteralText(status + "  " + PS5ControllerClient.layout), this.width / 2, 52, PS5ControllerClient.connected ? 0x55FF55 : 0xFF5555);
+            drawCenteredText(matrices, this.textRenderer, new LiteralText(PS5ControllerClient.padName + "  Battery: " + PS5ControllerClient.battery), this.width / 2, 66, 0xFFFFFF);
+            drawCenteredText(matrices, this.textRenderer, new LiteralText("PS5 is picked automatically"), this.width / 2, 80, 0xAAAAAA);
         }
         super.render(matrices, mouseX, mouseY, delta);
     }
