@@ -25,25 +25,38 @@ public class ControllerScreen extends Screen {
                 String n = GLFW.glfwGetJoystickName(id);
                 if (n == null) n = "Controller";
                 if (n.length() > 18) n = n.substring(0, 18);
-                String label = (pick == PS5ControllerClient.selected ? "* " : "") + n;
-                this.addDrawableChild(new ButtonWidget(x, y + i * 22, 220, 20, new LiteralText(label), b -> { PS5ControllerClient.usePad(pick); this.init(client, width, height); }));
+                this.addDrawableChild(new ButtonWidget(x, y + i * 22, 220, 20, new LiteralText((pick == PS5ControllerClient.selected ? "* " : "") + n), b -> { PS5ControllerClient.usePad(pick); this.init(client, width, height); }));
                 i++;
             }
         } else if (page == 1) {
-            this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText("Deadzone: " + PS5ControllerClient.deadzone), b -> PS5ControllerClient.cycleDeadzone()));
-            this.addDrawableChild(new ButtonWidget(x, y + 24, 220, 20, new LiteralText("Look speed: " + PS5ControllerClient.lookSpeed), b -> PS5ControllerClient.cycleLook()));
-            this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Menu speed: " + PS5ControllerClient.menuSpeed), b -> PS5ControllerClient.cycleMenu()));
-            this.addDrawableChild(new ButtonWidget(x, y + 72, 220, 20, new LiteralText("Invert look: " + (PS5ControllerClient.invertY ? "On" : "Off")), b -> PS5ControllerClient.toggleInvert()));
+            this.addDrawableChild(cycle(x, y, "Deadzone", () -> String.valueOf(PS5ControllerClient.deadzone), PS5ControllerClient::cycleDeadzone));
+            this.addDrawableChild(cycle(x, y + 24, "Look speed", () -> String.valueOf(PS5ControllerClient.lookSpeed), PS5ControllerClient::cycleLook));
+            this.addDrawableChild(cycle(x, y + 48, "Menu speed", () -> String.valueOf(PS5ControllerClient.menuSpeed), PS5ControllerClient::cycleMenu));
+            this.addDrawableChild(onOff(x, y + 72, "Invert look", () -> PS5ControllerClient.invertY, PS5ControllerClient::toggleInvert));
         } else if (page == 2) {
-            this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText("Button guide: " + (PS5ControllerClient.showGuide ? "On" : "Off")), b -> PS5ControllerClient.toggleGuide()));
-            this.addDrawableChild(new ButtonWidget(x, y + 24, 220, 20, new LiteralText("Guide: " + (PS5ControllerClient.guideFull ? "Full" : "Minimal")), b -> PS5ControllerClient.toggleGuideSize()));
-            this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Connection line: " + (PS5ControllerClient.showStatus ? "On" : "Off")), b -> PS5ControllerClient.toggleStatus()));
+            this.addDrawableChild(onOff(x, y, "Button guide", () -> PS5ControllerClient.showGuide, PS5ControllerClient::toggleGuide));
+            this.addDrawableChild(onOff(x, y + 24, "Full guide", () -> PS5ControllerClient.guideFull, PS5ControllerClient::toggleGuideSize));
+            this.addDrawableChild(onOff(x, y + 48, "Connection line", () -> PS5ControllerClient.showStatus, PS5ControllerClient::toggleStatus));
         } else if (page == 3) {
             this.addDrawableChild(new ButtonWidget(x, y, 220, 20, new LiteralText("Map every button"), b -> this.client.setScreen(new ControlsScreen(this))));
             this.addDrawableChild(new ButtonWidget(x, y + 24, 220, 20, new LiteralText("Map D-pad, all 4"), b -> this.client.setScreen(new DpadMapScreen(this))));
-            this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Reset DualSense layout"), b -> PS5ControllerClient.applyDefault()));
+            this.addDrawableChild(new ButtonWidget(x, y + 48, 220, 20, new LiteralText("Load PS5 layout"), b -> { PS5ControllerClient.applyDefault(); b.setMessage(new LiteralText("PS5 layout loaded")); }));
         }
         this.addDrawableChild(new ButtonWidget(x, this.height - 28, 220, 20, new LiteralText("Done"), b -> this.onClose()));
+    }
+
+    private ButtonWidget onOff(int x, int y, String name, java.util.function.BooleanSupplier get, Runnable toggle) {
+        return new ButtonWidget(x, y, 220, 20, new LiteralText(name + ": " + (get.getAsBoolean() ? "On" : "Off")), b -> {
+            toggle.run();
+            b.setMessage(new LiteralText(name + ": " + (get.getAsBoolean() ? "On" : "Off")));
+        });
+    }
+
+    private ButtonWidget cycle(int x, int y, String name, java.util.function.Supplier<String> get, Runnable cycle) {
+        return new ButtonWidget(x, y, 220, 20, new LiteralText(name + ": " + get.get()), b -> {
+            cycle.run();
+            b.setMessage(new LiteralText(name + ": " + get.get()));
+        });
     }
 
     @Override public void onClose() { this.client.setScreen(parent); }
@@ -54,7 +67,7 @@ public class ControllerScreen extends Screen {
         if (page == 0) {
             String status = PS5ControllerClient.connected ? "Using: " + PS5ControllerClient.padName : "No controller connected";
             drawCenteredText(matrices, this.textRenderer, new LiteralText(status), this.width / 2, 52, PS5ControllerClient.connected ? 0x55FF55 : 0xFF5555);
-            drawCenteredText(matrices, this.textRenderer, new LiteralText("Press a pad below to switch"), this.width / 2, 66, 0xAAAAAA);
+            drawCenteredText(matrices, this.textRenderer, new LiteralText("PS5 layout is loaded"), this.width / 2, 66, 0xAAAAAA);
         }
         super.render(matrices, mouseX, mouseY, delta);
     }
